@@ -4,18 +4,18 @@ import os
 import requests
 import time
 
-# 1. Playwright 
+# Playwright 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=False)  # while headless=True, could not scrap
     page = browser.new_page()
     
     # Trendyol URL, we should initialize the URL which we are scrapping
-    url = "https://www.trendyol.com/sr?wb=142700&wc=104025&tag=kirmizi_kampanya_urunu"
+    url = "https://www.trendyol.com/sr?wb=101470&wc=104025&qt=telefon&st=telefon&lc=103112&os=1"
     page.goto(url)
     
     # with scrolling, we can obtain more product
     last_height = page.evaluate("document.body.scrollHeight")
-    
+
     while True:
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         time.sleep(3)
@@ -34,7 +34,7 @@ with sync_playwright() as p:
     data = []
     
     # Define the selector using the class name of the div containing the products.
-    for i, product in enumerate(products, start=1):
+    for i, product in enumerate(products[:5], start=1):  # Sadece ilk 5 ürün
         try:
             brand = product.query_selector("span.prdct-desc-cntnr-ttl").inner_text()
         except:
@@ -79,6 +79,52 @@ with sync_playwright() as p:
         except:
             color_count = "1"
         
+        # seller data
+        seller_info = "Yok"
+        if link != "Yok":
+            detail_page = browser.new_page()
+            detail_page.goto("https://www.trendyol.com" + link)
+            time.sleep(2)
+
+            try:
+                show_more_btn = detail_page.query_selector('button[data-testid="show-more-button"]')
+                if show_more_btn:
+                    show_more_btn.click(force=True)
+                    time.sleep(2)
+            except:
+                pass
+
+            seen_links = set()
+            try:
+                sellers = detail_page.query_selector_all('div._box_09af503.other-merchant-item-box')
+                seller_data = []
+                for s in sellers:
+                    try:
+                        seller_name = s.query_selector('div.merchant-header-name').inner_text()
+                    except:
+                        seller_name = "Yok"
+                    try:
+                        seller_price = s.query_selector('div.price-current-price').inner_text()
+                    except:
+                        seller_price = "Yok"
+                    try:
+                        seller_link = s.query_selector('a[data-testid="other-merchant-product-button"]').get_attribute("href")
+                        seller_link = "https://www.trendyol.com" + seller_link
+                    except:
+                        seller_link = "Yok"
+
+                    # If the link was added already, continue
+                    if seller_link in seen_links or seller_link == "Yok":
+                        continue
+                    seen_links.add(seller_link)
+
+                    seller_data.append(f"{seller_name}: {seller_price}")
+                seller_info = " | ".join(seller_data) if seller_data else "Tek satıcı"
+            except:
+                seller_info = "Bulunamadı"
+            
+            detail_page.close()
+
         data.append({
             "Marka": brand,
             "Ürün": name,
@@ -88,7 +134,8 @@ with sync_playwright() as p:
             "Rozetler": badge_text,
             "Fotoğraf_URL": img_url,
             "Fotoğraf_Dosya": img_file_name,
-            "Renk_Seçenek_Sayısı": color_count
+            "Renk_Seçenek_Sayısı": color_count,
+            "Satıcı_Fiyatları": seller_info
         })
     
     # writing excel
